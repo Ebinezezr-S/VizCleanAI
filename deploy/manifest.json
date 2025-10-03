@@ -1,0 +1,20 @@
+{
+  "deployed_at": "2025-09-30T19:58:15.067991Z",
+  "deployed": {
+    "model": {
+      "src": "D:\\Document\\Data Tool\\vizclean_ds_app\\models\\vizclean_model_demo.joblib",
+      "dst": "D:\\Document\\Data Tool\\vizclean_ds_app\\deploy\\vizclean_model_demo.joblib",
+      "mtime": 1759262085.369829
+    },
+    "report_pdf": {
+      "src": "D:\\Document\\Data Tool\\vizclean_ds_app\\reports\\vizclean_report_demo.pdf",
+      "dst": "D:\\Document\\Data Tool\\vizclean_ds_app\\deploy\\vizclean_report_demo.pdf",
+      "mtime": 1759262085.4166992
+    },
+    "report_json": {
+      "src": "D:\\Document\\Data Tool\\vizclean_ds_app\\reports\\vizclean_summary_demo.json",
+      "dst": "D:\\Document\\Data Tool\\vizclean_ds_app\\deploy\\vizclean_summary_demo.json",
+      "mtime": 1759262085.4010816
+    }
+  }
+}
