@@ -1,0 +1,41 @@
+﻿# secure_file_server.py
+"""
+Secure file server for VizClean (token-based).
+Place this next to file_server.py. It serves files from ./deploy and requires
+the header 'x-token' to match the environment variable API_TOKEN.
+"""
+from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi.responses import FileResponse
+from pathlib import Path
+import uvicorn
+import os
+
+API_TOKEN = os.environ.get("API_TOKEN", None)
+if API_TOKEN is None:
+    print("WARNING: API_TOKEN not set. Set environment variable API_TOKEN before running secure server.")
+
+BASE = Path(__file__).parent / "deploy"
+app = FastAPI(title="VizClean Secure File Server")
+
+def check_token(x_token: str = Header(None)):
+    if API_TOKEN is None:
+        raise HTTPException(status_code=500, detail="Server not configured with API_TOKEN")
+    if x_token != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+@app.get("/files", dependencies=[Depends(check_token)])
+def list_files():
+    if not BASE.exists():
+        return {"files": []}
+    files = sorted([f.name for f in BASE.glob("*") if f.is_file()], reverse=True)
+    return {"files": files}
+
+@app.get("/files/{filename}", dependencies=[Depends(check_token)])
+def get_file(filename: str):
+    fpath = BASE / filename
+    if not fpath.exists() or not fpath.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=str(fpath), filename=filename)
+
+if __name__ == "__main__":
+    uvicorn.run("secure_file_server:app", host="127.0.0.1", port=8502, reload=True)
