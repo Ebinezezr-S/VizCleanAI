@@ -1,107 +1,119 @@
-﻿import os
-import io
-import pandas as pd
+﻿# --- HF image generator block (paste into main_app.py at the place you want it) ---
+import time
+import base64
+import traceback
+from pathlib import Path
 import streamlit as st
-from datetime import datetime
+from huggingface_hub import InferenceClient
 
-# Ensure data folder exists (ignored by git)
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
+DATA_DIR = Path("data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-st.title("VizClean — Upload & Preview")
-
-# File uploader
-uploaded = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xls", "xlsx"])
-
-if uploaded is None:
-    st.info("Please upload a file to continue.")
-else:
-    # Show filename and size
+def _save_image_obj(img, out_path: Path) -> bool:
+    """Try common ways to persist the returned image object."""
     try:
-        # uploaded may be a Streamlit UploadedFile object which supports .name and .size
-        fname = uploaded.name
-        fsize = getattr(uploaded, "size", None)
-        if fsize:
-            st.write(f"**File:** {fname} — {fsize//1024} KB")
-        else:
-            st.write(f"**File:** {fname}")
+        # PIL.Image-like
+        img.save(out_path)
+        return True
     except Exception:
-        # defensive: sometimes UploadedFile differs by Streamlit version
-        st.write(f"**File uploaded**")
+        pass
+    # bytes-like
+    if isinstance(img, (bytes, bytearray)):
+        out_path.write_bytes(img)
+        return True
+    # dict/list patterns
+    if isinstance(img, dict):
+        for key in ("image", "images", "data"):
+            if key in img:
+                data = img[key]
+                if isinstance(data, (bytes, bytearray)):
+                    out_path.write_bytes(data)
+                    return True
+                if isinstance(data, str):
+                    out_path.write_bytes(base64.b64decode(data))
+                    return True
+    if isinstance(img, list) and len(img) and isinstance(img[0], (bytes, bytearray)):
+        out_path.write_bytes(img[0])
+        return True
+    return False
 
-    # Read file into a DataFrame with basic format detection
-    df = None
-    read_error = None
-    try:
-        name_lower = fname.lower()
-        uploaded.seek(0)
-        if name_lower.endswith((".xls", ".xlsx")):
-            # For Excel files
-            df = pd.read_excel(uploaded)
-        else:
-            # For CSV and generic text files
-            # Try with default encoding; fallback to utf-8-sig if needed
-            try:
-                uploaded.seek(0)
-                df = pd.read_csv(uploaded)
-            except Exception:
-                uploaded.seek(0)
-                df = pd.read_csv(uploaded, encoding="utf-8-sig")
-    except Exception as e:
-        read_error = e
-        st.error(f"Failed to read uploaded file: {e}")
+st.markdown("### AI Image Generator (Hugging Face)")
+col1, col2 = st.columns([3, 1])
+with col1:
+    prompt = st.text_area("Prompt", "A dragon flying over a medieval castle", height=120)
+    negative_prompt = st.text_input("Negative prompt (optional)", "")
+    model_id = st.text_input("Model id", "black-forest-labs/FLUX.1-dev")
+with col2:
+    width = st.number_input("Width", min_value=64, max_value=2048, value=512, step=64)
+    height = st.number_input("Height", min_value=64, max_value=2048, value=512, step=64)
+    steps = st.number_input("Steps", min_value=1, max_value=200, value=30)
+    guidance = st.slider("Guidance scale", 0.0, 20.0, 7.5)
+    seed = st.number_input("Seed (0 = random)", value=0, step=1)
 
-    # If read succeeded, present preview and save copy
-    if df is not None:
-        st.success("File read successfully.")
-        st.subheader("Preview (first 5 rows)")
-        st.dataframe(df.head())
+provider_choice = st.selectbox("Provider (fallback order: auto → hf-inference)", ["auto", "hf-inference"])
+generate = st.button("Generate image")
 
-        # Save a timestamped copy in data/ for local usage
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_name = "".join(c if c.isalnum() or c in (" ", ".", "_", "-") else "_" for c in fname)
-        save_name = f"{os.path.splitext(safe_name)[0]}_{timestamp}{os.path.splitext(safe_name)[1]}"
-        save_path = os.path.join(DATA_DIR, save_name)
-
-        # Save as original format when possible; for csv fallback to csv
-        try:
-            if name_lower.endswith((".xls", ".xlsx")):
-                df.to_excel(save_path, index=False)
-            else:
-                # ensure .csv extension
-                if not save_path.lower().endswith(".csv"):
-                    save_path = os.path.splitext(save_path)[0] + ".csv"
-                df.to_csv(save_path, index=False)
-            st.write(f"Saved a local copy to `{save_path}` (not tracked by git).")
-        except Exception as e:
-            st.warning(f"Could not save local copy: {e}")
-
-        # Store DataFrame in session state for downstream processing
-        st.session_state["uploaded_df"] = df
-
-        # Optional: a separate button to run heavier cleaning/processing
-        if st.button("Run cleaning pipeline"):
-            st.info("Running cleaning steps...")
-            try:
-                # Example cleaning steps (customize to your pipeline)
-                # 1) Drop fully empty rows
-                cleaned = df.dropna(how="all").copy()
-
-                # 2) Trim whitespace from string columns
-                for c in cleaned.select_dtypes(include=["object"]).columns:
-                    cleaned[c] = cleaned[c].astype(str).str.strip()
-
-                # 3) Show result summary
-                st.subheader("Cleaning result (sample)")
-                st.dataframe(cleaned.head())
-
-                # Save cleaned to data/ with suffix
-                cleaned_name = os.path.splitext(save_path)[0] + "_cleaned.csv"
-                cleaned.to_csv(cleaned_name, index=False)
-                st.success(f"Cleaning finished. Cleaned file saved to `{cleaned_name}`.")
-                st.session_state["cleaned_df"] = cleaned
-            except Exception as e:
-                st.error(f"Cleaning pipeline failed: {e}")
-
+if generate:
+    if not prompt.strip():
+        st.error("Please enter a prompt.")
     else:
-        st.error("No dataframe to show due to read error. Please check the file format.")
+        timestamp = int(time.time())
+        filename = f"vizclean_img_{timestamp}.png"
+        out_path = DATA_DIR / filename
+
+        st.info(f"Generating image using model `{model_id}` (provider={provider_choice}) — this may take a few seconds.")
+        progress_bar = st.progress(0)
+        try:
+            providers_to_try = [None] if provider_choice == "auto" else [provider_choice]
+            # If user chose auto, still include hf-inference as fallback
+            if provider_choice == "auto":
+                providers_to_try.append("hf-inference")
+
+            saved = False
+            last_exc = None
+            for i, prov in enumerate(providers_to_try):
+                try:
+                    # instantiate client for provider (None => auto)
+                    client = InferenceClient() if prov is None else InferenceClient(provider=prov)
+                    progress_bar.progress(int((i / len(providers_to_try)) * 50) )
+                    # call text_to_image with available kwargs
+                    img = client.text_to_image(
+                        prompt,
+                        model=model_id,
+                        negative_prompt=negative_prompt if negative_prompt else None,
+                        width=int(width),
+                        height=int(height),
+                        num_inference_steps=int(steps),
+                        guidance_scale=float(guidance),
+                        seed=int(seed) if seed != 0 else None,
+                    )
+                    progress_bar.progress(int((i / len(providers_to_try)) * 75) )
+                    # try saving
+                    if _save_image_obj(img, out_path):
+                        saved = True
+                        progress_bar.progress(100)
+                        st.success(f"Saved image to `{out_path}` (provider={prov or 'auto'})")
+                        break
+                    else:
+                        last_exc = f"Unknown return type {type(img)}"
+                        st.warning(f"Could not save returned object (provider={prov or 'auto'}) — trying next fallback.")
+                except Exception as e:
+                    last_exc = e
+                    st.warning(f"Provider {prov or 'auto'} failed: {e}")
+                    traceback.print_exc()
+                progress_bar.progress(int(((i+1) / len(providers_to_try)) * 90))
+            if not saved:
+                st.error("Image generation failed. See logs above.")
+                if last_exc:
+                    st.text(str(last_exc))
+            else:
+                # show and offer download
+                st.image(str(out_path), use_column_width=True)
+                with open(out_path, "rb") as f:
+                    st.download_button("Download image", f.read(), file_name=out_path.name, mime="image/png")
+        except Exception as e:
+            st.error("Unexpected error during generation.")
+            st.exception(e)
+        finally:
+            progress_bar.empty()
+# --- end HF image generator block ---
