@@ -1,6 +1,8 @@
-streamlit>=1.22
-huggingface-hub>=0.35.0
-pillow
+streamlit==1.38.0
 pandas
-fastapi
-uvicorn
+numpy
+scikit-learn
+matplotlib
+plotly
+Pillow
+openpyxl
