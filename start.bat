@@ -1,14 +1,20 @@
 @echo off
+REM Start VizClean AI (local venv) - double-click this file
+SETLOCAL
 cd /d "%~dp0"
-call .\.venv\Scripts\activate
 
-start "VizClean App" streamlit run main_app.py --server.port 8501 --server.address 127.0.0.1
-start "VizClean File Server" python file_server.py
+if exist .venv (
+  echo Activating virtual env .venv...
+  call .venv\Scripts\activate.bat
+) else (
+  echo Creating virtualenv .venv...
+  python -m venv .venv
+  call .venv\Scripts\activate.bat
+  echo Installing requirements...
+  pip install -r requirements.txt
+)
 
-echo.
-echo =====================================================
-echo   🚀 VizClean AI Started!
-echo   UI:       http://127.0.0.1:8501
-echo   Downloads: http://127.0.0.1:8502/files
-echo =====================================================
-pause
+echo Starting Streamlit app...
+python -m streamlit run streamlit_app.py --server.port=8501 --server.headless=true
+
+ENDLOCAL
