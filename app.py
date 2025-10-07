@@ -1,130 +1,184 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
-import io
-import plotly.express as px
+from io import BytesIO
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report
+import matplotlib.pyplot as plt
 
-# --------------------------------------------------------
-# ⚙️ App Config
-# --------------------------------------------------------
-st.set_page_config(page_title="✨ VizClean AI ✨", layout="wide")
+st.set_page_config(page_title="VizClean AI — Local", layout="wide")
 
-st.title("✨ VizClean AI ✨")
-st.subheader("Transform raw data into clean insights in seconds 🚀")
+st.title("✨ VizClean AI — Local (Updated)")
 
-# --------------------------------------------------------
-# 📤 File Upload
-# --------------------------------------------------------
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
-
-if uploaded_file is not None:
+# ---- Upload / load ----
+uploaded = st.file_uploader("Upload CSV file", type=["csv"], help="Limit file size by Streamlit config")
+df = None
+if uploaded is not None:
     try:
-        df = pd.read_csv(uploaded_file)
-    except UnicodeDecodeError:
-        st.warning("⚠️ Could not decode file using UTF-8 — retrying with ISO-8859-1")
-        df = pd.read_csv(uploaded_file, encoding="ISO-8859-1")
-
-    st.success(f"✅ File uploaded successfully: **{uploaded_file.name}** ({len(df)} rows, {len(df.columns)} columns)")
-
-    # Tabs
-    tabs = st.tabs(["Original Data", "Cleaned Data", "Data Summary", "Auto Insights", "Visualizations"])
-
-    # --------------------------------------------------------
-    # 🧹 Cleaning Process
-    # --------------------------------------------------------
-    df_clean = df.copy()
-
-    # Remove completely empty columns
-    df_clean.dropna(axis=1, how="all", inplace=True)
-
-    # Fill missing numeric values with median
-    numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
-    for col in numeric_cols:
-        df_clean[col].fillna(df_clean[col].median(), inplace=True)
-
-    # Fill missing categorical values with mode
-    cat_cols = df_clean.select_dtypes(exclude=[np.number]).columns
-    for col in cat_cols:
-        if df_clean[col].isnull().any():
-            df_clean[col].fillna(df_clean[col].mode()[0], inplace=True)
-
-    total_missing = df_clean.isnull().sum().sum()
-
-    # --------------------------------------------------------
-    # 🧾 Tab 1: Original Data
-    # --------------------------------------------------------
-    with tabs[0]:
-        st.write("### 🧾 Original Data Preview")
-        st.dataframe(df.head(20))
-
-    # --------------------------------------------------------
-    # 🧽 Tab 2: Cleaned Data
-    # --------------------------------------------------------
-    with tabs[1]:
-        st.write(f"### 🧽 Cleaned Data — Total missing values after cleaning: **{total_missing}**")
-        st.dataframe(df_clean.head(20))
-
-        # 🔽 Excel / CSV download (memory only)
-        def make_excel_download(df: pd.DataFrame):
-            try:
-                buffer = io.BytesIO()
-                df.to_excel(buffer, index=False, engine="openpyxl")
-                buffer.seek(0)
-                data = buffer.getvalue()
-                filename = "cleaned_data.xlsx"
-                mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                return data, filename, mime
-            except Exception as e:
-                csv_buf = io.StringIO()
-                df.to_csv(csv_buf, index=False)
-                csv_buf.seek(0)
-                data = csv_buf.getvalue().encode("utf-8")
-                filename = "cleaned_data.csv"
-                mime = "text/csv"
-                st.warning(f"Excel export failed — providing CSV instead ({e}).")
-                return data, filename, mime
-
-        data, filename, mime = make_excel_download(df_clean)
-        st.download_button("📥 Download Cleaned Data", data=data, file_name=filename, mime=mime)
-
-    # --------------------------------------------------------
-    # 📊 Tab 3: Data Summary
-    # --------------------------------------------------------
-    with tabs[2]:
-        st.write("### 📊 Data Summary")
-        st.write(df_clean.describe(include="all").transpose())
-
-    # --------------------------------------------------------
-    # 🔍 Tab 4: Auto Insights
-    # --------------------------------------------------------
-    with tabs[3]:
-        st.write("### 🤖 Auto Insights")
-        st.write("Top 5 rows with potential outliers (numeric columns ±3 std):")
-
-        if not numeric_cols.empty:
-            z_scores = np.abs((df_clean[numeric_cols] - df_clean[numeric_cols].mean()) / df_clean[numeric_cols].std())
-            outlier_mask = (z_scores > 3).any(axis=1)
-            outliers = df_clean[outlier_mask].head(5)
-            st.dataframe(outliers)
-        else:
-            st.info("No numeric columns available for outlier detection.")
-
-    # --------------------------------------------------------
-    # 📈 Tab 5: Visualizations
-    # --------------------------------------------------------
-    with tabs[4]:
-        st.write("### 📈 Visualizations")
-        cols = st.multiselect("Select columns to plot", df_clean.columns.tolist())
-
-        if len(cols) == 1:
-            st.bar_chart(df_clean[cols])
-        elif len(cols) == 2:
-            fig = px.scatter(df_clean, x=cols[0], y=cols[1], title=f"{cols[0]} vs {cols[1]}")
-            st.plotly_chart(fig, use_container_width=True)
-        elif len(cols) > 2:
-            st.warning("Please select only 1 or 2 columns for visualization.")
-        else:
-            st.info("Select at least one column to visualize.")
+        df = pd.read_csv(uploaded)
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
 else:
-    st.info("📤 Upload a CSV file to get started.")
+    # optionally, if a default local CSV exists (for dev), load it:
+    if st.checkbox("Load example: diabetes.csv from project folder"):
+        try:
+            df = pd.read_csv("data/diabetes.csv")
+            st.success("Loaded data/diabetes.csv")
+        except Exception as e:
+            st.error(f"Couldn't load example: {e}")
 
+if df is None:
+    st.info("Upload a CSV to begin. Or enable example load.")
+    st.stop()
+
+# show basic info
+st.markdown(f"**File:** `{getattr(uploaded, 'name', 'local file')}` — Rows: {df.shape[0]}, Columns: {df.shape[1]}")
+st.subheader("Original Data — First 10 rows")
+st.dataframe(df.head(10), height=240)
+
+# ---- Data summary ----
+st.subheader("Dataset Summary")
+with st.expander("Basic summary"):
+    buffer = BytesIO()
+    st.write("Columns:", list(df.columns))
+    st.write("Dtypes:")
+    st.write(df.dtypes)
+    st.write("Missing values per column:")
+    st.write(df.isnull().sum())
+
+# numeric summary
+num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+if len(num_cols) > 0:
+    st.write("Numeric summary (first 10 columns shown):")
+    st.dataframe(df[num_cols].describe().transpose().round(4))
+
+# ---- Imputation / cleaning ----
+st.subheader("🧽 Fill Missing Values (Imputation)")
+
+col_to_impute = st.multiselect("Columns to impute (leave empty = all numeric columns)", options=df.columns.tolist())
+
+numeric_strategy = st.selectbox("Numeric strategy", ["mean", "median", "constant"])
+numeric_constant = None
+if numeric_strategy == "constant":
+    numeric_constant = st.number_input("Numeric constant value", value=0.0)
+
+text_strategy = st.selectbox("Text strategy", ["mode", "constant"])
+text_constant = None
+if text_strategy == "constant":
+    text_constant = st.text_input("Text constant value", value="")
+
+apply_impute = st.button("Apply imputation (preview only)")
+
+# create cleaned copy
+df_clean = df.copy()
+
+if apply_impute:
+    # choose columns
+    if not col_to_impute:
+        # default: all columns with any missing values
+        col_to_impute = df_clean.columns[df_clean.isnull().any()].tolist()
+
+    for col in col_to_impute:
+        if pd.api.types.is_numeric_dtype(df_clean[col]):
+            if numeric_strategy == "mean":
+                fillval = df_clean[col].mean()
+            elif numeric_strategy == "median":
+                fillval = df_clean[col].median()
+            else:
+                fillval = numeric_constant
+            # SAFE fill (avoid chained assignment)
+            df_clean[col] = df_clean[col].fillna(fillval)
+        else:
+            if text_strategy == "mode":
+                try:
+                    fillval = df_clean[col].mode().iat[0]
+                except Exception:
+                    fillval = ""
+            else:
+                fillval = text_constant
+            df_clean[col] = df_clean[col].fillna(fillval)
+
+    st.success("Imputation applied to preview `df_clean` (not yet saved).")
+    st.dataframe(df_clean.head(10), height=240)
+
+# button to create cleaned copy permanently (overwrite df_clean variable)
+if st.button("Create cleaned copy (overwrite preview)"):
+    # df_clean already prepared above if apply_impute clicked; else copy original
+    if not apply_impute:
+        df_clean = df.copy()
+    st.success("Cleaned copy created.")
+    st.dataframe(df_clean.head(10), height=240)
+
+# download cleaned CSV
+def convert_df_to_csv_bytes(dataframe: pd.DataFrame) -> bytes:
+    return dataframe.to_csv(index=False).encode("utf-8")
+
+if st.button("Download cleaned CSV"):
+    csv_bytes = convert_df_to_csv_bytes(df_clean)
+    st.download_button(label="Download cleaned.csv", data=csv_bytes, file_name="cleaned.csv", mime="text/csv")
+
+# ---- Missing-values visualization ----
+st.subheader("Missing values overview")
+missing_counts = df.isnull().sum()
+if missing_counts.sum() == 0:
+    st.info("No missing values found.")
+else:
+    st.bar_chart(missing_counts[missing_counts > 0])
+
+# ---- Visualizations ----
+st.subheader("📈 Visualizations")
+vis_col = st.selectbox("Select numeric column to plot", options=num_cols + ["(none)"])
+if vis_col and vis_col != "(none)":
+    st.write("Histogram and boxplot for:", vis_col)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    axes[0].hist(df_clean[vis_col].dropna(), bins=30)
+    axes[0].set_title(f"Histogram: {vis_col}")
+    axes[1].boxplot(df_clean[vis_col].dropna(), vert=False)
+    axes[1].set_title(f"Boxplot: {vis_col}")
+    st.pyplot(fig)
+
+# ---- Optional ML: simple Logistic Regression ----
+st.subheader("🔎 Quick ML: Train simple LogisticRegression (if dataset has binary target 'Outcome')")
+
+if 'Outcome' in df_clean.columns:
+    st.write("Found `Outcome` column — ready to train a simple model.")
+    test_size = st.slider("Test size (%)", 10, 50, 20)
+    do_train = st.button("Train LogisticRegression")
+    if do_train:
+        # prepare
+        X = df_clean.drop(columns=['Outcome'])
+        y = df_clean['Outcome']
+        # drop non-numeric columns or encode simply
+        X_numeric = X.select_dtypes(include=[np.number]).copy()
+        if X_numeric.shape[1] == 0:
+            st.error("No numeric features available for simple training.")
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_numeric, y, test_size=test_size/100, random_state=42, stratify=y if len(np.unique(y))>1 else None
+            )
+            scaler = StandardScaler()
+            X_train_s = scaler.fit_transform(X_train)
+            X_test_s = scaler.transform(X_test)
+
+            model = LogisticRegression(max_iter=1000)
+            model.fit(X_train_s, y_train)
+
+            preds = model.predict(X_test_s)
+            probs = model.predict_proba(X_test_s)[:,1] if hasattr(model, "predict_proba") else None
+
+            acc = accuracy_score(y_test, preds)
+            st.success(f"Accuracy: {acc:.3f}")
+            if probs is not None and len(np.unique(y_test)) == 2:
+                auc = roc_auc_score(y_test, probs)
+                st.success(f"ROC AUC: {auc:.3f}")
+            st.text("Classification report:")
+            st.text(classification_report(y_test, preds))
+else:
+    st.info("No `Outcome` column found. To use Quick ML, add a binary target column named `Outcome`.")
+
+# ---- Footer ----
+st.markdown("---")
+st.caption("Built with ❤️ — VizClean AI (local). Changes: fixed pandas chained-assignment, added cleaned download & quick ML.")
