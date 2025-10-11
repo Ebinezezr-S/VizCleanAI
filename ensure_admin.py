@@ -1,0 +1,40 @@
+import datetime
+import os
+import sqlite3
+
+import bcrypt
+
+DB = os.path.join("data", "users.db")
+os.makedirs("data", exist_ok=True)
+
+conn = sqlite3.connect(DB)
+c = conn.cursor()
+c.execute(
+    """CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    force_reset INTEGER DEFAULT 0
+)"""
+)
+# try to add column if missing (safe)
+try:
+    c.execute("ALTER TABLE users ADD COLUMN force_reset INTEGER DEFAULT 0")
+    conn.commit()
+except Exception:
+    pass
+
+# ensure admin user
+username = "admin"
+password = "Admin@123"
+hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+c.execute("DELETE FROM users WHERE LOWER(username)=LOWER(?)", (username,))
+c.execute(
+    "INSERT INTO users (username, password_hash, created_at, force_reset) VALUES (?, ?, ?, ?)",
+    (username.lower(), hashed, datetime.datetime.now().isoformat(), 0),
+)
+conn.commit()
+conn.close()
+print("Admin user ensured in", DB)

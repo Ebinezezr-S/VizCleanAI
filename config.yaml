@@ -1,0 +1,5 @@
+upload_dir: data/uploads
+cleaning:
+  fill_strategy:
+    numeric: median
+    categorical: missing

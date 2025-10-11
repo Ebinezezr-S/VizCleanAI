@@ -1,13 +1,17 @@
 # io_helpers.py
 import os
-import pandas as pd
 from datetime import datetime
-from typing import Optional, Tuple, IO
+from typing import IO, Optional, Tuple
+
+import pandas as pd
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-def read_uploaded_file(fileobj: IO, filename: str) -> Tuple[Optional[pd.DataFrame], Optional[Exception]]:
+
+def read_uploaded_file(
+    fileobj: IO, filename: str
+) -> Tuple[Optional[pd.DataFrame], Optional[Exception]]:
     """
     Read an uploaded file (stream or path-like). Returns (df, error).
     Supports CSV and Excel.
@@ -36,13 +40,16 @@ def read_uploaded_file(fileobj: IO, filename: str) -> Tuple[Optional[pd.DataFram
     except Exception as e:
         return None, e
 
+
 def save_local_copy(df: pd.DataFrame, original_name: str) -> str:
     """
     Save DataFrame to DATA_DIR with timestamped safe name. Returns saved path.
     If original_name ends with .xls/.xlsx, saved as that extension; otherwise as .csv.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = "".join(c if c.isalnum() or c in (" ", ".", "_", "-") else "_" for c in original_name)
+    safe_name = "".join(
+        c if c.isalnum() or c in (" ", ".", "_", "-") else "_" for c in original_name
+    )
     base, ext = os.path.splitext(safe_name)
     if ext.lower() not in (".xls", ".xlsx", ".csv"):
         ext = ".csv"

@@ -1,10 +1,9 @@
-# api/main.py
+﻿# api/main.py
 import uvicorn
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="vizclean API")
-
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
@@ -12,11 +11,9 @@ async def upload(file: UploadFile = File(...)):
     # save to disk, return id
     return JSONResponse({"filename": file.filename, "size": len(contents)})
 
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
 
 if __name__ == "__main__":
     uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)
